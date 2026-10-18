@@ -1,69 +1,68 @@
-# Silead SIL6250 fingerprint reader on Linux — Linux Mint and Huawei MateBook D16
+# Сканер отпечатка Silead SIL6250 в Linux — Linux Mint и Huawei MateBook D16
 
-Community-maintained Linux driver and installation guide for the Silead/Petaic SIL6250 fingerprint reader, with a tested Linux Mint Cinnamon setup for the Huawei MateBook D16. The repository contains the ACPI kernel module, the Rust protocol/matcher library, a libfprint TOD plugin, installation and rollback helpers, diagnostics, and a Russian guide.
+Сообщественный драйвер и подробная инструкция по настройке сканера отпечатка Silead/Petaic SIL6250. Описанный путь проверен на Huawei MateBook D16 с Linux Mint Cinnamon. В репозитории собраны модуль ядра, библиотека протокола и сопоставления на Rust, плагин libfprint TOD, вспомогательные скрипты установки/отката, диагностика и эта инструкция.
 
-**Русская подробная инструкция:** [README.ru.md](README.ru.md).
+**English guide:** [README in English](README.en.md).
 
-> **Linux Mint safety:** use the stock Mint `fprintd` and the `tod/` plugin in this repository. Do **not** install the Debian `open-fprintd` package on a Mint system using Fingwit: it declares conflicts with the stock `fprintd` and Fingwit/PAM packages and can remove or replace them. Do not run the `sil6250d` open-fprintd backend on Mint. The install script now refuses that backend when it detects the stock Debian/Ubuntu `fprintd` package.
+> **Важно для Linux Mint:** используйте штатный Mint `fprintd` и плагин из каталога `tod/`. Не устанавливайте пакет Debian `open-fprintd` в Mint с Fingwit: он конфликтует со штатными пакетами `fprintd`, Fingwit/PAM и может удалить или заменить их. Не запускайте для этого ноутбука альтернативный демон `sil6250d` для open-fprintd. Скрипт установки теперь отказывается ставить этот альтернативный backend, если обнаруживает штатный пакет Debian/Ubuntu `fprintd`.
 >
-> The documented installation path does not disable Secure Boot and does not edit PAM. Do not change PAM until enrollment and verification work.
+> Описанная настройка не отключает Secure Boot и не редактирует PAM. Не меняйте PAM до успешной регистрации и проверки отпечатка.
 
-## Tested setup
+## Что проверено
 
-- Huawei MateBook D16 with an ACPI `SIL6250` device.
-- Linux Mint Cinnamon, Secure Boot left enabled.
-- Firmware query returned `13.32.0.0`; handshake passed; a 5,120-byte frame was captured; enrollment completed through `fprintd`; a registered finger verified successfully.
-- The reader and firmware are not documented by the vendor. Other laptops that contain a SIL6250 may use different firmware, ACPI resources, or board wiring and are not confirmed by this report.
+- Huawei MateBook D16 с ACPI-устройством `SIL6250`.
+- Linux Mint Cinnamon; Secure Boot оставался включён.
+- Версия прошивки датчика определилась как `13.32.0.0`, handshake прошёл, получен кадр размером 5120 байт, регистрация прошла через `fprintd`, зарегистрированный палец успешно прошёл проверку.
+- Производитель не публиковал документацию на протокол датчика. Другие ноутбуки с SIL6250 могут иметь другую прошивку, ACPI-ресурсы или разводку платы — они здесь не проверены.
 
-This is community reverse-engineered software, not an official Huawei or Silead driver. Fingerprint authentication is a convenience feature; keep a working password login and test the password fallback before relying on the reader.
+Это неофициальный драйвер, полученный методом обратной разработки; Huawei и Silead его не поддерживают. Отпечаток — дополнительный способ входа: сохраняйте рабочий вход по паролю и сначала убедитесь, что он доступен.
 
-## Choose the correct backend
+## Выберите правильный backend
 
-There are two different ways to connect this hardware to fprintd:
+Есть два независимых способа подключить датчик к fprintd:
 
-1. **Recommended for Linux Mint / Debian systems with stock `fprintd`:** `kernel/` plus the `tod/` libfprint plugin. This keeps Mint's existing fprintd, Fingwit, PAM configuration, and password login.
-2. **Alternative for distributions set up with `open-fprintd`:** the Rust `sil6250d` D-Bus daemon. It registers with the open-fprintd manager and is useful where that backend is already supported.
+1. **Для Linux Mint / Debian со штатным `fprintd` — рекомендуемый путь:** модуль из `kernel/` и плагин libfprint TOD из `tod/`. Он использует штатные `fprintd`, Fingwit и PAM.
+2. **Для дистрибутивов, где уже используется `open-fprintd`:** Rust-демон `sil6250d`, который регистрирует датчик у менеджера open-fprintd.
 
-Do not install both backends. On Mint, follow only the TOD path below. In particular, do not install `open-fprintd` to make the TOD plugin work; it is not required by that path.
+Не устанавливайте оба backend одновременно. Для Mint следуйте только шагам TOD. Пакет `open-fprintd` этому способу не нужен.
 
-## Linux Mint installation
+## Установка в Linux Mint
 
-Commands below are run in a terminal. Commands beginning with `sudo` ask for the administrator password. The build steps run as your regular user.
+Все команды выполняются в терминале. Строки с `sudo` запросят пароль администратора. Сборку выполняйте от обычного пользователя, не через `sudo`.
 
-### 1. Check that the machine has the target device
+### 1. Убедитесь, что устройство обнаружено
 
 ```sh
-lscpu | head
 cat /sys/bus/platform/devices/SIL6250:00/modalias 2>/dev/null || true
 ```
 
-The modalias is expected to contain `SIL6250`. If the platform device is absent, stop here: this driver is specific to this ACPI device and cannot make an unrelated fingerprint reader appear.
+В modalias ожидается `SIL6250`. Если платформенное устройство не найдено, остановитесь: этот драйвер предназначен именно для такого ACPI-устройства и не обнаружит несовместимый сканер.
 
-### 2. Install build prerequisites
+### 2. Установите зависимости
 
 ```sh
 sudo apt update
 sudo apt install build-essential dkms linux-headers-$(uname -r) mokutil pkg-config libssl-dev libfprint-2-tod-dev
 ```
 
-Install a current stable Rust toolchain if the distro's `cargo`/`rustc` is too old for the locked dependencies. Use the official [Rust installation instructions](https://www.rust-lang.org/tools/install); do not run Cargo with `sudo`.
+Если `cargo`/`rustc` из дистрибутива слишком старые для закреплённых зависимостей, установите актуальный стабильный Rust по [официальной инструкции Rust](https://www.rust-lang.org/tools/install). Не запускайте Cargo от root.
 
-Clone the public repository and enter it:
+Склонируйте репозиторий и перейдите в каталог:
 
 ```sh
 git clone https://github.com/Lans240/sil6250-linux-mint.git
 cd sil6250-linux-mint
 ```
 
-### 3. Build and install the kernel module
+### 3. Соберите и установите модуль ядра
 
 ```sh
 ./install.sh kernel
 ```
 
-This stage builds/installs the DKMS kernel module and installs its udev rule. It does not install a fingerprint daemon, touch PAM, or disable Secure Boot. The installer refuses to overwrite an existing DKMS source directory; if you already installed an older copy, inspect `dkms status` before deciding how to update it.
+Этот этап собирает/устанавливает модуль через DKMS и правило udev. Он не устанавливает службы отпечатков, не изменяет PAM и не отключает Secure Boot. Скрипт отказывается перезаписывать уже существующий каталог исходников DKMS. Если более старая версия уже установлена, сначала посмотрите `dkms status` и разберитесь с ней отдельно.
 
-Check that the module and character device exist:
+Проверьте, что модуль и устройство появились:
 
 ```sh
 mokutil --sb-state
@@ -73,16 +72,16 @@ lsmod | grep -w sil6250
 ls -l /dev/sil6250
 ```
 
-`/dev/sil6250` should be a character device. If `modinfo` cannot find the module, check that the headers for the running kernel are installed and that DKMS built the module for `uname -r`:
+`/dev/sil6250` должен быть символьным устройством. Если `modinfo` не находит модуль, убедитесь, что установлены заголовки текущего ядра и DKMS собрал модуль именно для `uname -r`:
 
 ```sh
 uname -r
 dkms status
 ```
 
-#### Secure Boot and MOK
+#### Secure Boot и MOK
 
-Leave Secure Boot enabled. DKMS signs the out-of-tree module using a local Machine Owner Key (MOK). If `modprobe sil6250` reports that the key was rejected, check the kernel log and whether the DKMS public certificate is enrolled:
+Оставьте Secure Boot включённым. DKMS подписывает внешний модуль локальным ключом MOK. Если `modprobe sil6250` сообщает об отклонённом ключе, проверьте журнал ядра и наличие сертификата DKMS в списке зарегистрированных ключей:
 
 ```sh
 sudo modprobe sil6250
@@ -90,31 +89,31 @@ journalctl -k -b --no-pager | grep -iE 'sil6250|key was rejected|signature'
 mokutil --list-enrolled
 ```
 
-If DKMS created `/var/lib/dkms/mok.pub` and it is not enrolled, request enrollment:
+Если DKMS создал `/var/lib/dkms/mok.pub`, а ключ ещё не зарегистрирован, запросите его импорт:
 
 ```sh
 sudo mokutil --import /var/lib/dkms/mok.pub
 ```
 
-Set a one-time enrollment password, reboot, choose **Enroll MOK** in the blue MOK Manager screen, confirm the key, and reboot again. DKMS key paths vary by distribution; if that file does not exist, inspect the DKMS signing configuration and enroll the certificate that signed the module. Never enroll or publish a private `.key` file.
+Задайте одноразовый пароль, перезагрузите компьютер, в синем меню MOK Manager выберите **Enroll MOK**, подтвердите ключ и перезагрузитесь ещё раз. Путь к сертификату зависит от дистрибутива; если указанного файла нет, выясните, какой сертификат подписал модуль, и импортируйте именно его. Никогда не импортируйте и не публикуйте закрытый файл `.key`.
 
-### 4. Build and install the TOD plugin for stock fprintd
+### 4. Соберите и установите TOD-плагин для штатного fprintd
 
-Build the plugin as your regular user:
+Соберите плагин от обычного пользователя:
 
 ```sh
 make -C tod/driver
 ```
 
-Install only the plugin and its systemd service drop-in:
+Установите только плагин и drop-in для службы systemd:
 
 ```sh
 sudo bash tod/install-tod.sh
 ```
 
-The script checks that the stock `fprintd`, Fingwit, and `/dev/sil6250` are present, refuses to overwrite existing destination files, and installs the TOD plugin into the directory reported by `pkg-config`. It does not install or remove packages and does not alter Secure Boot or PAM.
+Скрипт проверяет наличие штатных `fprintd`, Fingwit и `/dev/sil6250`, отказывается перезаписывать уже существующие целевые файлы и устанавливает плагин в каталог, указанный `pkg-config`. Он не устанавливает и не удаляет пакеты, не меняет Secure Boot или PAM.
 
-### 5. Confirm device detection, then enroll and verify
+### 5. Проверьте обнаружение, зарегистрируйте и проверьте палец
 
 ```sh
 fprintd-list "$USER"
@@ -122,33 +121,33 @@ fprintd-enroll -f right-index-finger "$USER"
 fprintd-verify "$USER"
 ```
 
-Enrollment takes several separate presses. Lift the finger fully between prompts and reposition it to cover the center and edges. Do not press `Ctrl+C` while the enrollment stages are progressing. Enroll each desired finger separately. Verify each finger more than once and check that an unenrolled finger returns `verify-no-match`.
+При регистрации нужно несколько раз отдельно прикладывать палец. Полностью поднимайте его после каждого запроса и немного меняйте положение, чтобы захватить центр и края. Не нажимайте `Ctrl+C`, пока идут этапы регистрации. Каждый палец регистрируется отдельно. Проверьте каждый палец несколько раз; незарегистрированный палец должен давать `verify-no-match`.
 
-The GUI should now list the reader in Mint's **Fingerprints / Fingwit** settings. The lock screen and `sudo` use PAM. The stock password path remains available; do not edit PAM as a troubleshooting step for a device that has not yet enrolled and verified.
+После этого устройство должно отображаться в настройках Mint **«Отпечатки пальцев» / Fingwit**. Экран блокировки и `sudo` используют PAM. Штатный вход по паролю остаётся доступным; не меняйте PAM, пока устройство не зарегистрировано и не проверено.
 
-### 6. Optional: additional visual feedback in Cinnamon
+### 6. Необязательно: улучшить сообщения Cinnamon на экране блокировки
 
-If Cinnamon shows an English fingerprint prompt or gives no clear indication of a mismatch, the helper can translate the supported lock-screen prompt to Russian and show a mismatch in red. It makes a timestamped backup, checks the Cinnamon source version/handler, and refuses to patch an unknown source layout:
+Если Cinnamon показывает английскую подсказку или неясно сообщает о несовпадении отпечатка, скрипт может перевести поддерживаемую подсказку на русский и показать ошибку красным. Скрипт создаёт резервную копию с датой, проверяет версию исходников Cinnamon и обработчик; неизвестный исходный код он не меняет:
 
 ```sh
 sudo bash tod/update-cinnamon-fingerprint-feedback.sh
 ```
 
-Log out of Cinnamon and back in to reload the screensaver. Cinnamon package updates may replace the patched file. This optional customization changes the Cinnamon screensaver source; it does not change PAM or fprintd. Skip it if the Cinnamon version guard refuses the patch.
+Выйдите из сеанса Cinnamon и войдите снова, чтобы перезапустить экран блокировки. Обновление Cinnamon может заменить изменённый системный файл. Это необязательная настройка интерфейса; она не меняет PAM или fprintd. Если проверка версии откажется работать, пропустите этот пункт.
 
-### 7. Optional: increase the fingerprint retry window in PAM
+### 7. Необязательно: увеличить число повторов отпечатка в PAM
 
-Only after `fprintd-enroll` and `fprintd-verify` work, you may run:
+Только после того, как `fprintd-enroll` и `fprintd-verify` работают, можно запустить:
 
 ```sh
 sudo bash tod/set-fingerprint-retries.sh
 ```
 
-This helper is specific to the expected Mint/Fingwit PAM line. It creates a backup and refuses to change a different PAM stack. It changes the shared `common-auth` fingerprint retry settings (so it may affect the lock screen, `sudo`, and other PAM prompts using that profile). The password fallback line is preserved. Review the helper and its backup before use; never remove the password fallback.
+Скрипт рассчитан на конкретную строку PAM Mint/Fingwit. Он создаёт резервную копию и отказывается менять отличающийся стек PAM. Параметры повторов изменяются в общем профиле `common-auth`, поэтому эффект может распространяться на экран блокировки, `sudo` и другие запросы PAM, использующие этот профиль. Запасной вход по паролю сохраняется. Перед запуском просмотрите скрипт и резервную копию; не удаляйте строку входа по паролю.
 
-## Diagnostics
+## Диагностика
 
-Run these checks if the Fingerprints settings page says no device is available:
+Если настройки «Отпечатки пальцев» пишут, что устройство не найдено, проверьте:
 
 ```sh
 lsmod | grep -w sil6250
@@ -159,9 +158,9 @@ systemctl cat fprintd
 journalctl -u fprintd -b --no-pager | tail -100
 ```
 
-Check that `fprintd`'s systemd service has `FP_TOD_DRIVERS_DIR` set to the TOD directory and `FP_SIL6250=/dev/sil6250`. The plugin path should end in `libfprint-2-tod-sil6250.so`.
+В конфигурации службы `fprintd` должны быть переменные `FP_TOD_DRIVERS_DIR` со значением TOD-каталога и `FP_SIL6250=/dev/sil6250`. Имя плагина должно заканчиваться на `libfprint-2-tod-sil6250.so`.
 
-To diagnose the sensor protocol without storing a fingerprint image:
+Для диагностики протокола без сохранения изображения отпечатка:
 
 ```sh
 cargo build --locked --release -p sil6250 --example hsdiag
@@ -170,53 +169,53 @@ cargo build --locked --release -p sil6250 --example fw_probe
 sudo ./target/release/examples/fw_probe
 ```
 
-The optional `capture_check` example reports frame size and a quality score but does not save the captured frame:
+Дополнительный пример `capture_check` выводит размер и качество кадра, но не сохраняет его:
 
 ```sh
 cargo build --locked --release -p sil6250 --example capture_check
 sudo ./target/release/examples/capture_check
 ```
 
-Do not attach raw captures, enrolled-print files, kernel dumps, or full system logs to public issues. Redact usernames, serial numbers, hostnames, and local paths from any diagnostic output before sharing it.
+Не прикладывайте к публичным обсуждениям сырые кадры, файлы зарегистрированных отпечатков, дампы ядра или полные системные журналы. Перед публикацией диагностического вывода скройте имена пользователей, серийные номера, имя компьютера и локальные пути.
 
-## Removal / rollback
+## Откат и удаление
 
-Remove only the TOD plugin and its service drop-in:
+Удалить только TOD-плагин и его drop-in службы:
 
 ```sh
 sudo bash tod/remove-tod.sh
 ```
 
-This restores fprintd to its previous driver set; enrolled templates in the fprintd data directory are not deleted by that helper. To remove a kernel module installed through this repository's DKMS config, inspect first:
+Скрипт возвращает fprintd прежний список драйверов и не удаляет файлы зарегистрированных шаблонов из каталога данных fprintd. Чтобы удалить модуль, установленный из DKMS-конфигурации этого репозитория, сначала проверьте:
 
 ```sh
 dkms status
 ```
 
-Then remove only the matching `sil6250/0.1.0` registration if you are sure it belongs to this installation:
+Удаляйте регистрацию `sil6250/0.1.0` только если уверены, что она принадлежит этой установке:
 
 ```sh
 sudo dkms remove sil6250/0.1.0 --all
 ```
 
-Do not delete MOK keys: DKMS may share them with other modules. Do not disable Secure Boot or remove PAM password authentication to troubleshoot this driver.
+Не удаляйте ключи MOK: другие модули DKMS могут использовать те же ключи. Не отключайте Secure Boot и не удаляйте парольную аутентификацию PAM для диагностики.
 
-## Alternative `sil6250d` backend
+## Альтернативный backend `sil6250d`
 
-`sil6250d/` is a Rust D-Bus backend for `open-fprintd`, not the recommended Mint route. It is kept for distributions that already use open-fprintd. It must not be used alongside the TOD plugin for the same sensor. The `install.sh daemon` stage checks that `open-fprintd.service` exists and refuses to run when the stock Debian/Ubuntu `fprintd` package is installed.
+Каталог `sil6250d/` содержит Rust-демон D-Bus для `open-fprintd`; это не рекомендуемый путь для Mint. Он оставлен для дистрибутивов, где уже работает open-fprintd. Одновременно подключать к датчику TOD-плагин и `sil6250d` нельзя. Этап `daemon` в `install.sh` проверяет службу `open-fprintd.service` и отказывается запускаться, если установлен штатный Debian/Ubuntu пакет `fprintd`.
 
-## Repository contents
+## Состав проекта
 
-- `kernel/` — ACPI module and DKMS/udev integration.
-- `sil6250/` — Rust transport, firmware protocol, image feature extractor and matcher.
-- `tod/` — libfprint TOD driver, Rust/C bridge, Mint installation/removal/update helpers.
-- `sil6250d/` — optional open-fprintd backend.
-- `REVERSE_ENGINEERING_DETAILS.md` — protocol and implementation notes.
+- `kernel/` — ACPI-модуль, конфигурация DKMS и правило udev.
+- `sil6250/` — Rust-транспорт, протокол прошивки, извлечение признаков изображения и сопоставление.
+- `tod/` — драйвер libfprint TOD, мост Rust/C, скрипты установки/обновления/удаления для Mint.
+- `sil6250d/` — дополнительный backend для open-fprintd.
+- `REVERSE_ENGINEERING_DETAILS.md` — заметки по протоколу и реализации.
 
-No fingerprint images, enrolled biometric templates, compiled `.so`/`.ko` files, user logs, local system paths, Git credentials, or original Git history are included. Generated binaries, build outputs, and raw image formats are ignored by Git.
+В репозитории нет изображений отпечатков, зарегистрированных биометрических шаблонов, собранных `.so`/`.ko`, журналов пользователя, локальных путей, Git-учётных данных или исходной Git-истории. Сборки, бинарники и форматы сырых кадров перечислены в `.gitignore`.
 
-## Credits and license
+## Благодарности и лицензия
 
-This is a community setup/maintenance repository based on the SIL6250 Linux driver work by [AlexDaichendt/sil6250-linux](https://github.com/AlexDaichendt/sil6250-linux). Thanks also to the [open-fprintd](https://github.com/uunicorn/open-fprintd) project and the [GXFP Linux driver](https://github.com/Void755/gxfp_linux_driver) for relevant interface/reference work. Their projects remain separate and retain their own licenses.
+Это сообщественный проект настройки и сопровождения, основанный на работе над Linux-драйвером SIL6250 в [AlexDaichendt/sil6250-linux](https://github.com/AlexDaichendt/sil6250-linux). Также благодарность проектам [open-fprintd](https://github.com/uunicorn/open-fprintd) и [GXFP Linux driver](https://github.com/Void755/gxfp_linux_driver) за полезные интерфейсы и справочные материалы. Эти проекты не входят в данный репозиторий и сохраняют свои лицензии.
 
-The source files carry SPDX identifiers; the root `LICENSE` is LGPL-2.1 and `LICENSES/GPL-2.0.txt` is included for GPL-2.0 components. See the file headers for the license of each component.
+В заголовках исходников указаны лицензии SPDX; корневой файл `LICENSE` содержит LGPL-2.1, а `LICENSES/GPL-2.0.txt` добавлен для компонентов под GPL-2.0. Для каждого компонента смотрите его заголовок.
