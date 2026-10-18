@@ -1,0 +1,26 @@
+# Rust builds and output binaries
+/target/
+**/target/
+*.so
+*.a
+*.o
+*.ko
+*.mod
+*.mod.c
+*.cmd
+Module.symvers
+modules.order
+.tmp_versions/
+
+# Captured biometric images and diagnostic dumps (never commit these)
+*.raw
+*.pgm
+*.bmp
+*.pcap
+
+# Local credentials and editor state
+.env
+.env.*
+!.env.example
+.cache/
+compile_commands.json

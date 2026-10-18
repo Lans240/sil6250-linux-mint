@@ -1,0 +1,3 @@
+[workspace]
+members = ["sil6250", "sil6250d"]
+resolver = "2"

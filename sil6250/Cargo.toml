@@ -1,0 +1,9 @@
+[package]
+name = "sil6250"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openssl = "0.10"
+nix = { version = "0.29", features = ["ioctl", "mman"] }
+thiserror = "2"
