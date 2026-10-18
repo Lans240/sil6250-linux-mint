@@ -4,6 +4,7 @@
 use std::io::{self, Read, Write};
 use std::ptr::NonNull;
 use std::str::FromStr;
+use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use openssl::ssl::{HandshakeError, Ssl, SslContext, SslContextBuilder, SslMethod, SslStream,
